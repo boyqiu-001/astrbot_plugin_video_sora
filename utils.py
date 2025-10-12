@@ -124,23 +124,23 @@ class Utils:
                 result = response.json()
                 for item in result:
                     if item.get("id") == task_id:
-                        return item.get("status"), None
-                return None, None  # 任务不存在，视为完成
+                        return item.get("status"), None, item.get("progress_pct")
+                return None, None, None  # 任务不存在，视为完成
             else:
                 result = response.json()
                 err_str = f"视频状态查询失败: {result.get('error', {}).get('message')}"
                 logger.error(err_str)
-                return "FAILED", err_str
+                return "FAILED", err_str, None
         except Exception as e:
             logger.error(f"视频状态查询失败: {e}")
-            return "FAILED", "视频状态查询失败"
+            return "FAILED", "视频状态查询失败", None
 
     async def pending_video(self, task_id: str, authorization: str) -> bool:
         """轮询等待视频生成完成"""
         interval = max_interval
         elapsed = 0  # 已等待时间
         while elapsed < total_wait:
-            status = await self._pending_video(task_id, authorization)
+            status, _, progress = await self._pending_video(task_id, authorization)
             if not status:
                 return True, None  # 任务不存在，视为完成
             elif status == "FAILED":
@@ -152,7 +152,7 @@ class Utils:
             elapsed += wait_time
             # 反向指数退避：间隔逐步减小
             interval = max(min_interval, interval // 2)
-            logger.debug(f"视频处理中，{interval}s 后再次请求...")
+            logger.debug(f"视频处理中，{interval}s 后再次请求... 进度: {progress:.2f}%")
         logger.error("视频生成超时")
         return False, "视频生成超时"
 
