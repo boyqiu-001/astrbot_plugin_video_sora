@@ -124,16 +124,16 @@ class Utils:
                 result = response.json()
                 for item in result:
                     if item.get("id") == task_id:
-                        return item.get("status"), None, item.get("progress_pct")
-                return None, None, None  # 任务不存在，视为完成
+                        return item.get("status"), None, item.get("progress_pct") or 0
+                return None, None, 0  # 任务不存在，视为完成
             else:
                 result = response.json()
                 err_str = f"视频状态查询失败: {result.get('error', {}).get('message')}"
                 logger.error(err_str)
-                return "FAILED", err_str, None
+                return "FAILED", err_str, 0
         except Exception as e:
             logger.error(f"视频状态查询失败: {e}")
-            return "FAILED", "视频状态查询失败", None
+            return "FAILED", "视频状态查询失败", 0
 
     async def pending_video(self, task_id: str, authorization: str) -> bool:
         """轮询等待视频生成完成"""
@@ -144,8 +144,8 @@ class Utils:
             if not status:
                 return True, None  # 任务不存在，视为完成
             elif status == "FAILED":
-                logger.error("视频生成失败")
-                return False, "视频生成失败"
+                logger.error("视频状态查询失败")
+                return False, "视频状态查询失败"
             # 等待当前轮询间隔
             wait_time = min(interval, total_wait - elapsed)
             await asyncio.sleep(wait_time)
@@ -153,8 +153,8 @@ class Utils:
             # 反向指数退避：间隔逐步减小
             interval = max(min_interval, interval // 2)
             logger.debug(f"视频处理中，{interval}s 后再次请求... 进度: {progress:.2f}%")
-        logger.error("视频生成超时")
-        return False, "视频生成超时"
+        logger.error("视频状态查询超时")
+        return False, "视频状态查询超时"
 
     async def fetch_video_url(self, task_id: str, authorization: str) -> str | None:
         try:
