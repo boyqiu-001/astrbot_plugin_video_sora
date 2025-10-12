@@ -23,12 +23,12 @@ class VideoSora(Star):
     async def initialize(self):
         """可选择实现异步的插件初始化方法，当实例化该插件类之后会自动调用该方法。"""
 
-    @filter.regex(r"^(?:/|#|%)?\s*(生成视频|视频生成|sora)\s*(横屏|竖屏)?(.*)$")
+    @filter.regex(r"^(?:/|#|%)?(生成视频|视频生成|sora) (横屏|竖屏)?(.*)$")
     async def video_sora(self, event: AstrMessageEvent):
         """使用sora模型生成视频"""
         # 解析参数
         msg = re.match(
-            r"^(?:/|#|%)?(生成视频|视频生成|sora)\s*(横屏|竖屏)?(.*)$",
+            r"^(?:/|#|%)?(生成视频|视频生成|sora) (横屏|竖屏)?(.*)$",
             event.message_str,
         )
         prompt = self.def_prompt
