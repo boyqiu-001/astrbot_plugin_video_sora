@@ -1,0 +1,37 @@
+{
+  "authorization_list": {
+    "description": "authorization列表",
+    "type": "list",
+    "default": [],
+    "hint": "支持添加多个轮询使用，不要一次性加完，谨防大规模封号，获取方式：登录https://chatgpt.com后，进入https://chatgpt.com/api/auth/session复制accessToken字段的值填写进去即可，头部不需要加Bearer "
+  },
+  "screen_mode": {
+    "description": "默认图片方向",
+    "type": "string",
+    "options": [
+      "自动",
+      "横屏",
+      "竖屏"
+    ],
+    "default": "自动",
+    "hint": "生成图片横屏还是竖屏，如果没有图片且为自动，默认竖屏"
+  },
+  "sora_base_url": {
+    "description": "api_base",
+    "type": "string",
+    "default": "https://sora.chatgpt.com",
+    "hint": "仅作用于上传图片、发起生成请求等，不是下载视频，也可用于绕过地域限制"
+  },
+  "speed_down_url": {
+    "description": "下载视频的加速反代",
+    "type": "string",
+    "default": "",
+    "hint": "目前来看不需要使用，可留空。本质上是自动拼接https://加速域名/https://原始域名"
+  },
+  "proxy": {
+    "description": "proxy",
+    "type": "string",
+    "default": "",
+    "hint": "HTTP透明代理，格式可能是http://127.0.0.1:7890，适用所有请求"
+  }
+}
