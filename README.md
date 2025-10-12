@@ -4,7 +4,9 @@
 
 ## 获取网页鉴权
 accessToken获取方式：
-登录https://chatgpt.com后，进入https://chatgpt.com/api/auth/session复制accessToken字段的值填写进去即可，头部不需要加Bearer 
+登录 https://chatgpt.com
+进入 https://chatgpt.com/api/auth/session
+复制 accessToken 字段的值填写进去即可，头部不需要加Bearer 
 
 ## 使用说明
 触发词（支持前缀 / # %）：
