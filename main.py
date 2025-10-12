@@ -18,6 +18,7 @@ class VideoSora(Star):
         self.utils = Utils(sora_base_url, proxy)
         self.auth_dict = dict.fromkeys(self.config.get("authorization_list", []), 0)
         self.screen_mode = self.config.get("screen_mode", "自动")
+        self.def_prompt = self.config.get("default_prompt", "")
 
     async def initialize(self):
         """可选择实现异步的插件初始化方法，当实例化该插件类之后会自动调用该方法。"""
@@ -30,7 +31,7 @@ class VideoSora(Star):
             r"^(?:/|#|%)?(生成视频|视频生成|sora)\s*(横屏|竖屏)?(.*)$",
             event.message_str,
         )
-
+        prompt = self.def_prompt
         # 提示词优先取第三组
         if msg.group(3) and msg.group(3).strip():
             prompt = msg.group(3).strip()
@@ -101,9 +102,9 @@ class VideoSora(Star):
 
             # 如果消息中携带图片，上传图片到OpenAI端点
             images_id = ""
-            if image_url:
+            if image_bytes:
                 images_id = await self.utils.upload_images(
-                    image_url, authorization, image_bytes
+                    authorization, image_bytes
                 )
                 if not images_id:
                     yield event.chain_result(

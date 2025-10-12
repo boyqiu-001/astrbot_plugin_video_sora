@@ -5,6 +5,12 @@
     "default": [],
     "hint": "支持添加多个轮询使用，不要一次性加完，谨防大规模封号，获取方式：登录https://chatgpt.com后，进入https://chatgpt.com/api/auth/session复制accessToken字段的值填写进去即可，头部不需要加Bearer "
   },
+  "default_prompt": {
+    "description": "默认提示词",
+    "type": "string",
+    "default": "让图片的内容动起来",
+    "hint": ""
+  },
   "screen_mode": {
     "description": "默认图片方向",
     "type": "string",

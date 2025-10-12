@@ -1,10 +1,8 @@
-import ssl
 import time
 import asyncio
-import aiohttp
 from PIL import Image
 from io import BytesIO
-from curl_cffi import requests as req
+from curl_cffi import requests, AsyncSession, CurlMime
 from astrbot.api import logger
 
 # 轮询参数
@@ -16,28 +14,22 @@ total_wait = 300  # 最多等待5分钟
 class Utils:
     def __init__(self, sora_base_url: str, proxy: str):
         self.sora_base_url = sora_base_url
-        self.session = aiohttp.ClientSession()
         self.UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0"
         self.proxy = proxy
-        self.proxies = {
-            "http": proxy,
-            "https": proxy,
-        }
-        self.impersonate = "chrome136"
+        proxyes = {"http": proxy, "https": proxy} if proxy else None
+        self.session = AsyncSession(impersonate="chrome136", proxies=proxyes)
 
     async def download_image(self, url: str) -> bytes | None:
         try:
-            async with self.session.get(url) as resp:
-                return await resp.read()
+            response = await self.session.get(url)
+            return response.content
         except (
-            aiohttp.ClientConnectorSSLError,
-            aiohttp.ClientConnectorCertificateError,
+            requests.exceptions.SSLError,
+            requests.exceptions.CertificateVerifyError,
         ):
             # 关闭SSL验证
-            ssl_context = ssl.create_default_context()
-            ssl_context.set_ciphers("DEFAULT")
-            async with self.session.get(url, ssl=ssl_context) as resp:
-                return await resp.read()
+            response = await self.session.get(url, verify=False)
+            return response.content
         except Exception as e:
             logger.error(f"图片下载失败: {e}")
             return None
@@ -56,26 +48,31 @@ class Utils:
 
     async def upload_images(self, authorization: str, image_bytes: bytes) -> str | None:
         try:
-            files = {
-                "file": (f"{int(time.time() * 1000)}.png", image_bytes, "image/png")
-            }
-            response = req.post(
-                self.sora_base_url + "/backend/uploads",
-                files=files,
-                headers={"Authorization": authorization},
-                proxies=self.proxies if self.proxy else None,
-                impersonate=self.impersonate,
+            mp = CurlMime()
+            mp.addpart(
+                name="file",
+                filename=f"{int(time.time() * 1000)}.png",
+                content_type="image/png",
+                data=image_bytes,
             )
-            result = response.json()
+            response = await self.session.post(
+                self.sora_base_url + "/backend/uploads",
+                multipart=mp,
+                headers={"Authorization": authorization},
+            )
             if response.status_code == 200:
+                result = response.json()
                 return result.get("id")
             else:
+                result = response.json()
                 logger.error(f"图片上传失败: {result.get('error', {}).get('message')}")
                 return None
 
         except Exception as e:
             logger.error(f"图片上传失败: {e}")
             return None
+        finally:
+            mp.close()
 
     async def create_video(
         self, prompt: str, screen_mode: str, image_id: str, authorization: str
@@ -100,22 +97,16 @@ class Utils:
             "storyboard_id": None,
         }
         try:
-            response = req.post(
+            response = await self.session.post(
                 self.sora_base_url + "/backend/nf/create",
                 json=payload,
                 headers={"Authorization": authorization},
-                proxies=self.proxies if self.proxy else None,
-                impersonate=self.impersonate,
             )
-            try:
-                result = response.json()
-            except Exception:
-                text = response.text
-                logger.error(f"解析JSON失败，原始响应内容: {text}")
-                return None
             if response.status_code == 200:
+                result = response.json()
                 return result.get("id")
             else:
+                result = response.json()
                 logger.error(f"视频生成失败: {result.get('error', {}).get('message')}")
                 return None
         except Exception as e:
@@ -124,11 +115,9 @@ class Utils:
 
     async def _pending_video(self, task_id: str, authorization: str) -> str | None:
         try:
-            response = req.get(
+            response = await self.session.get(
                 self.sora_base_url + "/backend/nf/pending",
                 headers={"Authorization": authorization},
-                proxies=self.proxies if self.proxy else None,
-                impersonate=self.impersonate,
             )
             if response.status_code == 200:
                 result = response.json()
@@ -137,6 +126,7 @@ class Utils:
                         return item.get("status")
                 return None  # 任务不存在，视为完成
             else:
+                result = response.json()
                 logger.error(
                     f"视频状态查询失败: {result.get('error', {}).get('message')}"
                 )
@@ -168,11 +158,9 @@ class Utils:
 
     async def fetch_video_url(self, task_id: str, authorization: str) -> str | None:
         try:
-            response = req.get(
+            response = await self.session.get(
                 self.sora_base_url + "/backend/project_y/profile/drafts?limit=15",
                 headers={"Authorization": authorization},
-                proxies=self.proxies if self.proxy else None,
-                impersonate=self.impersonate,
             )
             result = response.json()
             if response.status_code == 200:
