@@ -22,6 +22,7 @@ class VideoSora(Star):
         self.auth_dict = dict.fromkeys(self.config.get("authorization_list", []), 0)
         self.screen_mode = self.config.get("screen_mode", "自动")
         self.def_prompt = self.config.get("default_prompt", "")
+        self.speed_down_url = self.config.get("speed_down_url")
 
     async def initialize(self):
         """可选择实现异步的插件初始化方法，当实例化该插件类之后会自动调用该方法。"""
@@ -160,6 +161,8 @@ class VideoSora(Star):
                 )
                 return
 
+            if self.speed_down_url:
+                video_url = self.speed_down_url + video_url
             yield event.chain_result([Video.fromURL(url=video_url)])
         finally:
             self.auth_dict[auth_token] -= 1
