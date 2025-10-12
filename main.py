@@ -332,12 +332,7 @@ class VideoSora(Star):
         if video_url:
             if self.speed_down_url:
                 video_url = self.speed_down_url + video_url
-            yield event.chain_result(
-                [
-                    Comp.Reply(id=event.message_obj.message_id),
-                    Video.fromURL(url=video_url),
-                ]
-            )
+            yield event.chain_result([Video.fromURL(url=video_url)])
             return
         # 再次尝试完成视频生成
         if status == "Queued" or status == "Timeout" or status == "EXCEPTION":
