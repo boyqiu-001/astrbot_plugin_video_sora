@@ -22,17 +22,17 @@ class Utils:
     async def download_image(self, url: str) -> bytes | None:
         try:
             response = await self.session.get(url)
-            return response.content
+            return response.content, None
         except (
             requests.exceptions.SSLError,
             requests.exceptions.CertificateVerifyError,
         ):
             # 关闭SSL验证
             response = await self.session.get(url, verify=False)
-            return response.content
+            return response.content, None
         except Exception as e:
             logger.error(f"图片下载失败: {e}")
-            return None
+            return None, "图片下载失败"
 
     def get_image_orientation(self, image_bytes: bytes) -> str:
         # 把 bytes 转成图片对象
@@ -62,15 +62,15 @@ class Utils:
             )
             if response.status_code == 200:
                 result = response.json()
-                return result.get("id")
+                return result.get("id"), None
             else:
                 result = response.json()
-                logger.error(f"图片上传失败: {result.get('error', {}).get('message')}")
-                return None
-
+                err_str = f"图片上传失败: {result.get('error', {}).get('message')}"
+                logger.error(err_str)
+                return None, err_str
         except Exception as e:
             logger.error(f"图片上传失败: {e}")
-            return None
+            return None, "图片上传失败"
         finally:
             mp.close()
 
@@ -104,16 +104,17 @@ class Utils:
             )
             if response.status_code == 200:
                 result = response.json()
-                return result.get("id")
+                return result.get("id"), None
             else:
                 result = response.json()
-                logger.error(f"视频生成失败: {result.get('error', {}).get('message')}")
-                return None
+                err_str = f"视频生成失败: {result.get('error', {}).get('message')}"
+                logger.error(err_str)
+                return None, err_str
         except Exception as e:
             logger.error(f"视频生成失败: {e}")
-            return None
+            return None, "视频生成失败"
 
-    async def _pending_video(self, task_id: str, authorization: str) -> str | None:
+    async def _pending_video(self, task_id: str, authorization: str) -> str | bool:
         try:
             response = await self.session.get(
                 self.sora_base_url + "/backend/nf/pending",
@@ -123,17 +124,16 @@ class Utils:
                 result = response.json()
                 for item in result:
                     if item.get("id") == task_id:
-                        return item.get("status")
-                return None  # 任务不存在，视为完成
+                        return item.get("status"), None
+                return None, None  # 任务不存在，视为完成
             else:
                 result = response.json()
-                logger.error(
-                    f"视频状态查询失败: {result.get('error', {}).get('message')}"
-                )
-                return "FAILED"
+                err_str = f"视频状态查询失败: {result.get('error', {}).get('message')}"
+                logger.error(err_str)
+                return "FAILED", err_str
         except Exception as e:
             logger.error(f"视频状态查询失败: {e}")
-            return "FAILED"
+            return "FAILED", "视频状态查询失败"
 
     async def pending_video(self, task_id: str, authorization: str) -> bool:
         """轮询等待视频生成完成"""
@@ -142,10 +142,10 @@ class Utils:
         while elapsed < total_wait:
             status = await self._pending_video(task_id, authorization)
             if not status:
-                return True  # 任务不存在，视为完成
+                return True, None  # 任务不存在，视为完成
             elif status == "FAILED":
                 logger.error("视频生成失败")
-                return False
+                return False, "视频生成失败"
             # 等待当前轮询间隔
             wait_time = min(interval, total_wait - elapsed)
             await asyncio.sleep(wait_time)
@@ -154,7 +154,7 @@ class Utils:
             interval = max(min_interval, interval // 2)
             logger.debug(f"视频处理中，{interval}s 后再次请求...")
         logger.error("视频生成超时")
-        return False
+        return False, "视频生成超时"
 
     async def fetch_video_url(self, task_id: str, authorization: str) -> str | None:
         try:
@@ -171,17 +171,16 @@ class Utils:
                             logger.error(
                                 f"视频链接为空, task_id: {task_id}, reason: {item.get('reason_str')}"
                             )
-                            return item.get("reason_str")
-                        return downloadable_url
-                return None
+                            return None, item.get("reason_str")
+                        return downloadable_url, None
+                return None, "未找到对应的视频"
             else:
-                logger.error(
-                    f"视频链接请求失败: {result.get('error', {}).get('message')}"
-                )
-                return None
+                err_str = f"视频链接请求失败: {result.get('error', {}).get('message')}"
+                logger.error(err_str)
+                return None, err_str
         except Exception as e:
             logger.error(f"视频链接获取失败: {e}")
-            return None
+            return None, "视频链接获取失败"
 
     async def close(self):
         await self.session.close()

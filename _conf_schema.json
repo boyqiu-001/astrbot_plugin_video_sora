@@ -28,12 +28,6 @@
     "default": "https://sora.chatgpt.com",
     "hint": "仅作用于上传图片、发起生成请求等，不是下载视频，也可用于绕过地域限制"
   },
-  "speed_down_url": {
-    "description": "下载视频的加速反代",
-    "type": "string",
-    "default": "",
-    "hint": "目前来看不需要使用，可留空。本质上是自动拼接https://加速域名/https://原始域名"
-  },
   "proxy": {
     "description": "proxy",
     "type": "string",

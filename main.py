@@ -8,12 +8,15 @@ from astrbot.api.message_components import Video
 from .utils import Utils
 
 
+# 获取视频下载地址
+max_wait = 30  # 最大等待时间（秒）
+interval = 5   # 每次轮询间隔（秒）
+
 class VideoSora(Star):
     def __init__(self, context: Context, config):
         super().__init__(context)
         self.config = config  # 读取配置文件
         sora_base_url = self.config.get("sora_base_url", "https://sora.chatgpt.com")
-        self.speed_down_url = self.config.get("speed_down_url")
         proxy = self.config.get("proxy")
         self.utils = Utils(sora_base_url, proxy)
         self.auth_dict = dict.fromkeys(self.config.get("authorization_list", []), 0)
@@ -80,12 +83,12 @@ class VideoSora(Star):
             # 下载图片
             image_bytes = None
             if image_url:
-                image_bytes = await self.utils.download_image(image_url)
-                if not image_bytes:
+                image_bytes, err = await self.utils.download_image(image_url)
+                if not image_bytes or err:
                     yield event.chain_result(
                         [
                             Comp.Reply(id=event.message_obj.message_id),
-                            Comp.Plain("下载失败"),
+                            Comp.Plain(err),
                         ]
                     )
                     return
@@ -103,57 +106,60 @@ class VideoSora(Star):
             # 如果消息中携带图片，上传图片到OpenAI端点
             images_id = ""
             if image_bytes:
-                images_id = await self.utils.upload_images(
+                images_id, err = await self.utils.upload_images(
                     authorization, image_bytes
                 )
-                if not images_id:
+                if not images_id or err:
                     yield event.chain_result(
                         [
                             Comp.Reply(id=event.message_obj.message_id),
-                            Comp.Plain("图片上传失败"),
+                            Comp.Plain(err),
                         ]
                     )
                     return
 
             # 生成视频
-            video_id = await self.utils.create_video(
+            video_id, err = await self.utils.create_video(
                 prompt, screen_mode, images_id, authorization
             )
-            if not video_id:
+            if not video_id or err:
                 yield event.chain_result(
                     [
                         Comp.Reply(id=event.message_obj.message_id),
-                        Comp.Plain("视频生成失败"),
+                        Comp.Plain(err),
                     ]
                 )
                 return
 
             # 轮询等待视频生成
-            result = await self.utils.pending_video(video_id, authorization)
-            if not result:
+            result, err = await self.utils.pending_video(video_id, authorization)
+            if not result or err:
                 yield event.chain_result(
                     [
                         Comp.Reply(id=event.message_obj.message_id),
-                        Comp.Plain("视频生成失败"),
+                        Comp.Plain(err),
                     ]
                 )
                 return
 
+            elapsed = 0
             # 获取视频下载地址
-            await asyncio.sleep(5)  # 等待5秒
-            video_url = await self.utils.fetch_video_url(video_id, authorization)
-            if not video_url:
+            while elapsed < max_wait:
+                video_url, err = await self.utils.fetch_video_url(video_id, authorization)
+                if video_url and not err:
+                    break  # 成功获取视频，跳出循环
+                await asyncio.sleep(interval)
+                elapsed += interval
+
+            if not video_url or err:
                 yield event.chain_result(
                     [
                         Comp.Reply(id=event.message_obj.message_id),
-                        Comp.Plain("视频下载地址获取失败"),
+                        Comp.Plain(err or "生成视频超时"),
                     ]
                 )
                 return
 
-            # 如果配置了加速下载地址，则拼接域名
-            if self.speed_down_url:
-                video_url = self.speed_down_url + video_url
             yield event.chain_result([Video.fromURL(url=video_url)])
         finally:
             self.auth_dict[auth_token] -= 1
