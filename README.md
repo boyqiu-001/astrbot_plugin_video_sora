@@ -1,6 +1,6 @@
 # astrbot_plugin_video_sora
 
-基于 Sora（非Sora2） 的视频生成插件。通过文本提示（可选参考图片）生成短视频并返回下载地址。
+基于 Sora（非Sora2） 的视频生成插件。通过文本提示（可选参考图片）生成视频。
 
 ## 获取网页鉴权
 accessToken获取方式：
