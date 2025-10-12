@@ -8,28 +8,48 @@ from astrbot.api import logger
 # 轮询参数
 max_interval = 60  # 最大间隔
 min_interval = 5  # 最小间隔
-total_wait = 300  # 最多等待5分钟
+total_wait = 360  # 最多等待6分钟
 
 
 class Utils:
     def __init__(self, sora_base_url: str, proxy: str):
         self.sora_base_url = sora_base_url
         self.UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0"
-        self.proxy = proxy
         proxyes = {"http": proxy, "https": proxy} if proxy else None
         self.session = AsyncSession(impersonate="chrome136", proxies=proxyes)
+
+    async def _handle_image(self, image_bytes: bytes) -> bytes | None:
+        try:
+            with Image.open(BytesIO(image_bytes)) as img:
+                # 如果不是 GIF，直接返回原图
+                if img.format != "GIF":
+                    return image_bytes
+                # 处理 GIF
+                buf = BytesIO()
+                # 判断是否为动画 GIF（多帧）
+                if getattr(img, "is_animated", False) and img.n_frames > 1:
+                    img.seek(0)  # 只取第一帧
+                # 单帧 GIF 或者多帧 GIF 的第一帧都走下面的保存逻辑
+                img = img.convert("RGBA")
+                img.save(buf, format="PNG")
+                return buf.getvalue()
+        except Exception as e:
+            logger.warning(f"GIF 处理失败，返回原图: {e}")
+            return image_bytes
 
     async def download_image(self, url: str) -> bytes | None:
         try:
             response = await self.session.get(url)
-            return response.content, None
+            content = await self._handle_image(response.content)
+            return content, None
         except (
             requests.exceptions.SSLError,
             requests.exceptions.CertificateVerifyError,
         ):
             # 关闭SSL验证
             response = await self.session.get(url, verify=False)
-            return response.content, None
+            content = await self._handle_image(response.content)
+            return content, None
         except Exception as e:
             logger.error(f"图片下载失败: {e}")
             return None, "图片下载失败"
@@ -114,7 +134,7 @@ class Utils:
             logger.error(f"视频生成失败: {e}")
             return None, "视频生成失败"
 
-    async def _pending_video(self, task_id: str, authorization: str) -> str | bool:
+    async def pending_video(self, task_id: str, authorization: str) -> str | bool:
         try:
             response = await self.session.get(
                 self.sora_base_url + "/backend/nf/pending",
@@ -125,36 +145,52 @@ class Utils:
                 for item in result:
                     if item.get("id") == task_id:
                         return item.get("status"), None, item.get("progress_pct") or 0
-                return None, None, 0  # 任务不存在，视为完成
+                return "Done", None, 0  # 任务不存在，视为完成
             else:
                 result = response.json()
                 err_str = f"视频状态查询失败: {result.get('error', {}).get('message')}"
                 logger.error(err_str)
-                return "FAILED", err_str, 0
+                return "Failed", err_str, 0
         except Exception as e:
             logger.error(f"视频状态查询失败: {e}")
-            return "FAILED", "视频状态查询失败", 0
+            return "EXCEPTION", "视频状态查询失败", 0
 
-    async def pending_video(self, task_id: str, authorization: str) -> bool:
+    async def poll_pending_video(
+        self, task_id: str, authorization: str
+    ) -> bool | str | None:
         """轮询等待视频生成完成"""
         interval = max_interval
         elapsed = 0  # 已等待时间
         while elapsed < total_wait:
-            status, _, progress = await self._pending_video(task_id, authorization)
-            if not status:
-                return True, None  # 任务不存在，视为完成
-            elif status == "FAILED":
+            status, err, progress = await self.pending_video(task_id, authorization)
+            if status == "Done":
+                return "Done", None  # 任务不存在，视为完成
+            elif status == "Failed":
                 logger.error("视频状态查询失败")
-                return False, "视频状态查询失败"
+                return (
+                    "Failed",
+                    f"视频状态查询失败，ID: {task_id}，进度: {progress * 100:.2f}%，错误: {err}",
+                )
+            elif status == "EXCEPTION":
+                logger.error("视频状态查询异常")
+                return (
+                    "EXCEPTION",
+                    f"视频状态查询异常，ID: {task_id}，进度: {progress * 100:.2f}%",
+                )
             # 等待当前轮询间隔
             wait_time = min(interval, total_wait - elapsed)
             await asyncio.sleep(wait_time)
             elapsed += wait_time
             # 反向指数退避：间隔逐步减小
             interval = max(min_interval, interval // 2)
-            logger.debug(f"视频处理中，{interval}s 后再次请求... 进度: {progress:.2f}%")
+            logger.debug(
+                f"视频处理中，{interval}s 后再次请求... 进度: {progress * 100:.2f}%"
+            )
         logger.error("视频状态查询超时")
-        return False, "视频状态查询超时"
+        return (
+            "Timeout",
+            f"视频状态查询超时，ID: {task_id}，生成进度: {progress * 100:.2f}%",
+        )
 
     async def fetch_video_url(self, task_id: str, authorization: str) -> str | None:
         try:
@@ -171,16 +207,21 @@ class Utils:
                             logger.error(
                                 f"视频链接为空, task_id: {task_id}, reason: {item.get('reason_str')}"
                             )
-                            return None, item.get("reason_str")
-                        return downloadable_url, None
-                return None, "未找到对应的视频"
+                            return (
+                                "Failed",
+                                None,
+                                item.get("id"),
+                                item.get("reason_str"),
+                            )
+                        return "Done", downloadable_url, item.get("id"), None
+                return "EXCEPTION", None, None, "未找到对应的视频"
             else:
                 err_str = f"视频链接请求失败: {result.get('error', {}).get('message')}"
                 logger.error(err_str)
-                return None, err_str
+                return "Failed", None, None, err_str
         except Exception as e:
             logger.error(f"视频链接获取失败: {e}")
-            return None, "视频链接获取失败"
+            return "EXCEPTION", None, None, "视频链接获取失败"
 
     async def close(self):
         await self.session.close()
