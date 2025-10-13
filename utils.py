@@ -12,11 +12,11 @@ total_wait = 360  # 最多等待6分钟
 
 
 class Utils:
-    def __init__(self, sora_base_url: str, proxy: str):
+    def __init__(self, sora_base_url: str, proxy: str, model: str):
         self.sora_base_url = sora_base_url
-        self.UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0"
         proxyes = {"http": proxy, "https": proxy} if proxy else None
         self.session = AsyncSession(impersonate="chrome136", proxies=proxyes)
+        self.model = model
 
     async def _handle_image(self, image_bytes: bytes) -> bytes | None:
         try:
@@ -109,7 +109,7 @@ class Utils:
             "remix_target_id": None,
             "cameo_ids": None,
             "cameo_replacements": None,
-            "model": "sy_8",
+            "model": self.model,
             "style_id": None,
             "audio_caption": None,
             "audio_transcript": None,

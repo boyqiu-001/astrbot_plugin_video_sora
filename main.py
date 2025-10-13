@@ -23,7 +23,8 @@ class VideoSora(Star):
         self.config = config  # 读取配置文件
         sora_base_url = self.config.get("sora_base_url", "https://sora.chatgpt.com")
         proxy = self.config.get("proxy")
-        self.utils = Utils(sora_base_url, proxy)
+        model = self.config.get("model", "sy_8")
+        self.utils = Utils(sora_base_url, proxy, model)
         self.auth_dict = dict.fromkeys(self.config.get("authorization_list", []), 0)
         self.screen_mode = self.config.get("screen_mode", "自动")
         self.def_prompt = self.config.get("default_prompt", "让图片画面动起来")

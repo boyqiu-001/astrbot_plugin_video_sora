@@ -1,6 +1,6 @@
 # astrbot_plugin_video_sora
 
-基于 Sora（非Sora2） 的视频生成插件。支持通过文本和图片生成视频。
+基于 Sora2 的视频生成插件。支持通过文本和图片生成视频。
 
 ## 获取网页鉴权（accessToken）
 1. 登录 https://chatgpt.com

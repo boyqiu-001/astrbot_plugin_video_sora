@@ -5,6 +5,12 @@
     "default": [],
     "hint": "支持添加多个Token轮询使用，不要一次性加太多账号，谨防大规模封号。Token获取方式：登录https://chatgpt.com以后，进入https://chatgpt.com/api/auth/session复制accessToken字段的值填写进去即可，头部不要加Bearer "
   },
+  "model": {
+    "description": "模型代码",
+    "type": "string",
+    "default": "已知可用的只有 sy_8",
+    "hint": ""
+  },
   "default_prompt": {
     "description": "默认提示词",
     "type": "string",
