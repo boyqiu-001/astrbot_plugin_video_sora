@@ -195,10 +195,11 @@ class VideoSora(Star):
             return
         auth_token = random.choice(valid_tokens)
         authorization = "Bearer " + auth_token
-        self.auth_dict[auth_token] += 1  # 并发数+1
-        if self.auth_dict[auth_token] > 2:
+        if self.auth_dict[auth_token] >= 2:
             self.auth_dict[auth_token] = 2
-            logger.warning("并发数超过限制，已重置为2")
+            logger.warning(f"Token {auth_token[-4:]} 并发数已达上限，但仍尝试使用")
+        else:
+            self.auth_dict[auth_token] += 1
 
         try:
             # 遍历消息链，获取第一张图片
@@ -297,10 +298,11 @@ class VideoSora(Star):
             # 剩下的任务交给quote_sora处理
             yield await self.quote_sora(event, task_id, authorization)
         finally:
-            self.auth_dict[auth_token] -= 1
-            if self.auth_dict[auth_token] < 0:
+            if self.auth_dict[auth_token] <= 0:
                 self.auth_dict[auth_token] = 0
-                logger.warning("并发数计算错误，已重置为0")
+                logger.warning(f"Token {auth_token[-4:]} 并发数计算错误，已重置为0")
+            else:
+                self.auth_dict[auth_token] -= 1
 
     @filter.command("sora查询")
     async def check_video_task(self, event: AstrMessageEvent, task_id: str):
@@ -359,6 +361,6 @@ class VideoSora(Star):
     async def terminate(self):
         """可选择实现异步的插件销毁方法，当插件被卸载/停用时会调用。"""
         await self.utils.close()
-        await self.conn.commit()
-        await self.cursor.close()
-        await self.conn.close()
+        self.conn.commit()
+        self.cursor.close()
+        self.conn.close()
