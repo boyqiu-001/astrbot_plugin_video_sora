@@ -8,8 +8,8 @@
   "model": {
     "description": "模型代码",
     "type": "string",
-    "default": "已知可用的只有 sy_8",
-    "hint": ""
+    "default": "sy_8",
+    "hint": "已知可用的只有 sy_8"
   },
   "default_prompt": {
     "description": "默认提示词",
