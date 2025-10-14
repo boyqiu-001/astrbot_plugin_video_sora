@@ -22,9 +22,10 @@ class VideoSora(Star):
         super().__init__(context)
         self.config = config  # 读取配置文件
         sora_base_url = self.config.get("sora_base_url", "https://sora.chatgpt.com")
+        chatgpt_base_url = self.config.get("chatgpt_base_url", "https://chatgpt.com")
         proxy = self.config.get("proxy")
         model = self.config.get("model", "sy_8")
-        self.utils = Utils(sora_base_url, proxy, model)
+        self.utils = Utils(sora_base_url, chatgpt_base_url, proxy, model)
         self.auth_dict = dict.fromkeys(self.config.get("authorization_list", []), 0)
         self.screen_mode = self.config.get("screen_mode", "自动")
         self.def_prompt = self.config.get("default_prompt", "让图片画面动起来")
@@ -58,21 +59,17 @@ class VideoSora(Star):
         """)
         self.conn.commit()
 
-    async def quote_sora(
+    async def quote_task(
         self, event: AstrMessageEvent, task_id: str, authorization: str, is_check=False
-    ):
+    ) -> list[Comp.BaseMessageComponent]:
         """完成视频生成并发送视频"""
 
         # 检查是否已经有相同任务在处理
         if task_id in self.polling_task:
             status, _, progress = await self.utils.pending_video(task_id, authorization)
-            return event.chain_result(
-                [
-                    Comp.Reply(id=event.message_obj.message_id),
-                    Comp.Plain(
-                        f"任务还在队列中，请稍后再看~\n状态：{status} 进度: {progress * 100:.2f}%"
-                    ),
-                ]
+            return (
+                None,
+                f"任务还在队列中，请稍后再看~\n状态：{status} 进度: {progress * 100:.2f}%",
             )
         # 优化人机交互
         if is_check:
@@ -107,12 +104,7 @@ class VideoSora(Star):
             self.conn.commit()
 
             if result != "Done" or err:
-                return event.chain_result(
-                    [
-                        Comp.Reply(id=event.message_obj.message_id),
-                        Comp.Plain(err),
-                    ]
-                )
+                return None, err
 
             elapsed = 0
             status = "Done"
@@ -126,7 +118,9 @@ class VideoSora(Star):
                     video_url,
                     generation_id,
                     err,
-                ) = await self.utils.fetch_video_url(task_id, authorization)
+                ) = await self.utils.fetch_video_url(
+                    task_id, authorization, 30 if is_check else 15
+                )
                 if video_url or status == "Failed":
                     break
                 await asyncio.sleep(interval)
@@ -153,30 +147,66 @@ class VideoSora(Star):
             self.conn.commit()
 
             if not video_url or err:
-                return event.chain_result(
-                    [
-                        Comp.Reply(id=event.message_obj.message_id),
-                        Comp.Plain(err or "生成视频超时"),
-                    ]
-                )
+                return None, err or "生成视频超时"
 
             if self.speed_down_url:
                 video_url = self.speed_down_url + video_url
-            return event.chain_result([Video.fromURL(url=video_url)])
+            return video_url, None
         finally:
             self.polling_task.remove(task_id)
+
+    async def create_video(
+        self,
+        event: AstrMessageEvent,
+        image_url: str,
+        image_bytes: bytes | None,
+        prompt: str,
+        screen_mode: str,
+        authorization: str,
+    ) -> str | None:
+        """创建视频生成任务"""
+        # 如果消息中携带图片，上传图片到OpenAI端点
+        images_id = ""
+        if image_bytes:
+            images_id, err = await self.utils.upload_images(authorization, image_bytes)
+            if not images_id or err:
+                return None, err
+
+        # 生成视频
+        task_id, err = await self.utils.create_video(
+            prompt, screen_mode, images_id, authorization
+        )
+        if not task_id or err:
+            return None, err
+
+        # 记录任务数据
+        datetime_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.cursor.execute(
+            """
+            INSERT INTO video_data (task_id, user_id, nickname, prompt, image_url, status, message_id, auth_xor, updated_at, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                task_id,
+                event.message_obj.sender.user_id,
+                event.message_obj.sender.nickname,
+                prompt,
+                image_url,
+                "Queued",
+                event.message_obj.message_id,
+                authorization[-8:],  # 只存储token的最后8位以作区分
+                datetime_now,
+                datetime_now,
+            ),
+        )
+        self.conn.commit()
+        # 返回结果
+        return task_id, None
 
     @filter.command("sora", alias={"生成视频", "视频生成"})
     async def video_sora(self, event: AstrMessageEvent):
         """使用sora模型生成视频"""
-        # 解析参数
-        msg = re.match(
-            r"^(?:生成视频|视频生成|sora) (横屏|竖屏)?([\s\S]*)$",
-            event.message_str,
-        )
-        # 提取提示词
-        prompt = msg.group(2).strip() if msg and msg.group(2) else self.def_prompt
-        # 随机选择一个Authorization
+        # 先检测AccessToken是否存在
         if not self.auth_dict:
             yield event.chain_result(
                 [
@@ -185,6 +215,51 @@ class VideoSora(Star):
                 ]
             )
             return
+        # 解析参数
+        msg = re.match(
+            r"^(?:生成视频|视频生成|sora) (横屏|竖屏)?([\s\S]*)$",
+            event.message_str,
+        )
+        # 提取提示词
+        prompt = msg.group(2).strip() if msg and msg.group(2) else self.def_prompt
+
+        # 遍历消息链，获取第一张图片
+        image_url = ""
+        for comp in event.get_messages():
+            if isinstance(comp, Comp.Image):
+                image_url = comp.url
+                break
+            elif isinstance(comp, Comp.Reply):
+                for quote in comp.chain:
+                    if isinstance(quote, Comp.Image):
+                        image_url = quote.url
+                        break
+                break
+
+        # 下载图片
+        image_bytes = None
+        if image_url:
+            image_bytes, err = await self.utils.download_image(image_url)
+            if not image_bytes or err:
+                yield event.chain_result(
+                    [
+                        Comp.Reply(id=event.message_obj.message_id),
+                        Comp.Plain(err),
+                    ]
+                )
+                return
+
+        # 竖屏还是横屏
+        screen_mode = "portrait"
+        if msg.group(1):
+            params = msg.group(1).strip()
+            screen_mode = "landscape" if params == "横屏" else "portrait"
+        elif self.screen_mode in ["横屏", "竖屏"]:
+            screen_mode = "landscape" if self.screen_mode == "横屏" else "portrait"
+        elif self.screen_mode == "自动" and image_bytes:
+            screen_mode = self.utils.get_image_orientation(image_bytes)
+
+        # 随机选择一个Authorization
         valid_tokens = [k for k, v in self.auth_dict.items() if v < 2]
         if not valid_tokens:
             yield event.chain_result(
@@ -194,110 +269,62 @@ class VideoSora(Star):
                 ]
             )
             return
-        auth_token = random.choice(valid_tokens)
-        authorization = "Bearer " + auth_token
-        if self.auth_dict[auth_token] >= 2:
-            self.auth_dict[auth_token] = 2
-            logger.warning(f"Token {auth_token[-4:]} 并发数已达上限，但仍尝试使用")
-        else:
-            self.auth_dict[auth_token] += 1
 
-        try:
-            # 遍历消息链，获取第一张图片
-            image_url = ""
-            for comp in event.get_messages():
-                if isinstance(comp, Comp.Image):
-                    image_url = comp.url
-                    break
-                elif isinstance(comp, Comp.Reply):
-                    for quote in comp.chain:
-                        if isinstance(quote, Comp.Image):
-                            image_url = quote.url
-                            break
-                    break
+        task_id = None
+        auth_token = None
+        authorization = None
+        err = None
 
-            # 下载图片
-            image_bytes = None
-            if image_url:
-                image_bytes, err = await self.utils.download_image(image_url)
-                if not image_bytes or err:
-                    yield event.chain_result(
-                        [
-                            Comp.Reply(id=event.message_obj.message_id),
-                            Comp.Plain(err),
-                        ]
-                    )
-                    return
-
-            # 竖屏还是横屏
-            screen_mode = "portrait"
-            if msg.group(1):
-                params = msg.group(1).strip()
-                screen_mode = "landscape" if params == "横屏" else "portrait"
-            elif self.screen_mode in ["横屏", "竖屏"]:
-                screen_mode = "landscape" if self.screen_mode == "横屏" else "portrait"
-            elif self.screen_mode == "自动" and image_bytes:
-                screen_mode = self.utils.get_image_orientation(image_bytes)
-
-            # 如果消息中携带图片，上传图片到OpenAI端点
-            images_id = ""
-            if image_bytes:
-                images_id, err = await self.utils.upload_images(
-                    authorization, image_bytes
-                )
-                if not images_id or err:
-                    yield event.chain_result(
-                        [
-                            Comp.Reply(id=event.message_obj.message_id),
-                            Comp.Plain(err),
-                        ]
-                    )
-                    return
-
-            # 生成视频
-            task_id, err = await self.utils.create_video(
-                prompt, screen_mode, images_id, authorization
+        # 打乱顺序，避免请求过于集中
+        random.shuffle(valid_tokens)
+        # 尝试循环使用所有可用 token，
+        for auth_token in valid_tokens:
+            authorization = "Bearer " + auth_token
+            # 调用创建视频的函数
+            task_id, err = await self.create_video(
+                event, image_url, image_bytes, prompt, screen_mode, authorization
             )
-            if not task_id or err:
+            # 如果成功拿到 task_id，则跳出循环
+            if task_id:
+                # 回复用户
                 yield event.chain_result(
                     [
                         Comp.Reply(id=event.message_obj.message_id),
-                        Comp.Plain(err),
+                        Comp.Plain(f"视频正在生成，请稍等~\nID: {task_id}"),
                     ]
                 )
-                return
+                break
 
-            # 记录任务数据
-            datetime_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            self.cursor.execute(
-                """
-                INSERT INTO video_data (task_id, user_id, nickname, prompt, image_url, status, message_id, auth_xor, updated_at, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    task_id,
-                    event.message_obj.sender.user_id,
-                    event.message_obj.sender.nickname,
-                    prompt,
-                    image_url,
-                    "Queued",
-                    event.message_obj.message_id,
-                    authorization[-8:],  # 只存储token的最后8位以作区分
-                    datetime_now,
-                    datetime_now,
-                ),
-            )
-            self.conn.commit()
-
-            # 回复用户
+        # 尝试完全部 token 仍然请求失败
+        if not task_id:
             yield event.chain_result(
                 [
                     Comp.Reply(id=event.message_obj.message_id),
-                    Comp.Plain(f"视频正在生成，请稍等~\nID: {task_id}"),
+                    Comp.Plain(err),
                 ]
             )
-            # 剩下的任务交给quote_sora处理
-            yield await self.quote_sora(event, task_id, authorization)
+            return
+
+        try:
+            # 记录并发
+            if self.auth_dict[auth_token] >= 2:
+                self.auth_dict[auth_token] = 2
+                logger.warning(f"Token {auth_token[-4:]} 并发数已达上限，但仍尝试使用")
+            else:
+                self.auth_dict[auth_token] += 1
+
+            # 剩下的任务交给quote_task处理
+            video_url, msg = await self.quote_task(event, task_id, authorization)
+            if not video_url:
+                yield event.chain_result(
+                    [
+                        Comp.Reply(id=event.message_obj.message_id),
+                        Comp.Plain(msg),
+                    ]
+                )
+                return
+            yield event.chain_result([Video.fromURL(url=video_url)])
+
         finally:
             if self.auth_dict[auth_token] <= 0:
                 self.auth_dict[auth_token] = 0
@@ -339,13 +366,13 @@ class VideoSora(Star):
             return
         # 再次尝试完成视频生成
         if status == "Queued" or status == "Timeout" or status == "EXCEPTION":
-            # 尝试匹配Authorization
-            authorization = None
+            # 尝试匹配auth_token
+            auth_token = None
             for token in self.auth_dict.keys():
                 if token.endswith(auth_xor):
-                    authorization = token
+                    auth_token = token
                     break
-            if not authorization:
+            if not auth_token:
                 yield event.chain_result(
                     [
                         Comp.Reply(id=event.message_obj.message_id),
@@ -353,11 +380,18 @@ class VideoSora(Star):
                     ]
                 )
                 return
-            # 交给quote_sora处理
-            yield await self.quote_sora(
-                event, task_id, "Bearer " + authorization, is_check=True
-            )
-            return
+            # 交给quote_task处理
+            authorization = "Bearer " + auth_token
+            video_url, msg = await self.quote_task(event, task_id, authorization, is_check=True)
+            if not video_url:
+                yield event.chain_result(
+                    [
+                        Comp.Reply(id=event.message_obj.message_id),
+                        Comp.Plain(msg),
+                    ]
+                )
+                return
+            yield event.chain_result([Video.fromURL(url=video_url)])
 
     async def terminate(self):
         """可选择实现异步的插件销毁方法，当插件被卸载/停用时会调用。"""
