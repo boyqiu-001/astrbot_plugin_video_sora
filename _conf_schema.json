@@ -40,11 +40,21 @@
     "default": "https://chatgpt.com",
     "hint": "用于获取Sentinel tokens以绕过反爬限制"
   },
+  "speed_down_url_type": {
+    "description": "下载视频的反代类型",
+    "type": "string",
+    "options": [
+      "拼接",
+      "替换"
+    ],
+    "default": "拼接",
+    "hint": "拼接类似于 https://加速域名/+https://原始域名。替换类似于 https://videos.openai.com/... -> https://加速域名/...，直接替换掉主域名"
+  },
   "speed_down_url": {
     "description": "下载视频的加速反代",
     "type": "string",
     "default": "",
-    "hint": "本质上是自动拼接，类似于 https://加速域名/+https://原始域名，意思是只填写反向代理的URL就可以了（前提是反代支持这种使用方式）"
+    "hint": "如上所述"
   },
   "proxy": {
     "description": "proxy",

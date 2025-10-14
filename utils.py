@@ -170,7 +170,10 @@ class Utils:
             response = await self.session.post(
                 self.sora_base_url + "/backend/nf/create",
                 json=payload,
-                headers={"Authorization": authorization, "openai-sentinel-token": sentinel_token},
+                headers={
+                    "Authorization": authorization,
+                    "openai-sentinel-token": sentinel_token,
+                },
             )
             if response.status_code == 200:
                 result = response.json()
@@ -264,14 +267,15 @@ class Utils:
                     if item.get("task_id") == task_id:
                         downloadable_url = item.get("downloadable_url")
                         if not downloadable_url:
+                            err_str = item.get("reason_str") or item.get("error_reason") or "未知错误"
                             logger.error(
-                                f"视频链接为空, task_id: {task_id}, reason: {item.get('reason_str')}"
+                                f"视频链接为空, task_id: {task_id}, reason: {err_str}"
                             )
                             return (
                                 "Failed",
                                 None,
                                 item.get("id"),
-                                item.get("reason_str"),
+                                err_str,
                             )
                         return "Done", downloadable_url, item.get("id"), None
                 return "EXCEPTION", None, None, "未找到对应的视频"

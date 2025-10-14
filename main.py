@@ -29,6 +29,7 @@ class VideoSora(Star):
         self.auth_dict = dict.fromkeys(self.config.get("authorization_list", []), 0)
         self.screen_mode = self.config.get("screen_mode", "自动")
         self.def_prompt = self.config.get("default_prompt", "让图片画面动起来")
+        self.speed_down_url_type = self.config.get("speed_down_url_type")
         self.speed_down_url = self.config.get("speed_down_url")
         self.polling_task = set()
 
@@ -150,7 +151,11 @@ class VideoSora(Star):
                 return None, err or "生成视频超时"
 
             if self.speed_down_url:
-                video_url = self.speed_down_url + video_url
+                if self.speed_down_url_type == "拼接":
+                    video_url = self.speed_down_url + video_url
+                elif self.speed_down_url_type == "替换":
+                    # 替换域名部分
+                    video_url = re.sub(r"^(https?://[^/]+)", self.speed_down_url.rstrip("/"), video_url)
             return video_url, None
         finally:
             self.polling_task.remove(task_id)
