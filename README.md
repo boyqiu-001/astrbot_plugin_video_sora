@@ -30,5 +30,4 @@
 - 本插件基于网页逆向的方式调用官方接口，存在封号风险，请谨慎使用。
 
 ## 致谢
-- 感谢 [leetanshaj/openai-sentinel](https://github.com/leetanshaj/openai-sentinel) 开源的 PoW 算法。
-- Thanks [leetanshaj/openai-sentinel](https://github.com/leetanshaj/openai-sentinel) for the open source PoW algorithm.
+- 感谢 [leetanshaj/openai-sentinel](https://github.com/leetanshaj/openai-sentinel) 公开 PoW 算法。（Thanks [leetanshaj/openai-sentinel](https://github.com/leetanshaj/openai-sentinel) for the PoW algorithm.）

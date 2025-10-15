@@ -21,12 +21,12 @@ class Utils:
     ):
         self.sora_base_url = sora_base_url
         self.chatgpt_base_url = chatgpt_base_url
-        proxyes = {"http": proxy, "https": proxy} if proxy else None
-        self.session = AsyncSession(impersonate="chrome136", proxies=proxyes)
+        proxies = {"http": proxy, "https": proxy} if proxy else None
+        self.session = AsyncSession(impersonate="chrome136", proxies=proxies)
         self.model = model
         self.UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0"
 
-    async def _handle_image(self, image_bytes: bytes) -> bytes | None:
+    def _handle_image(self, image_bytes: bytes) -> bytes | None:
         try:
             with Image.open(BytesIO(image_bytes)) as img:
                 # 如果不是 GIF，直接返回原图
@@ -48,7 +48,7 @@ class Utils:
     async def download_image(self, url: str) -> tuple[bytes | None, str | None]:
         try:
             response = await self.session.get(url)
-            content = await self._handle_image(response.content)
+            content = await asyncio.to_thread(self._handle_image, response.content)
             return content, None
         except (
             requests.exceptions.SSLError,
@@ -56,7 +56,7 @@ class Utils:
         ):
             # 关闭SSL验证
             response = await self.session.get(url, verify=False)
-            content = await self._handle_image(response.content)
+            content = await asyncio.to_thread(self._handle_image, response.content)
             return content, None
         except Timeout as e:
             logger.error(f"网络请求超时: {e}")
@@ -111,7 +111,7 @@ class Utils:
             mp.close()
 
     async def get_sentinel(self) -> tuple[str | None, str | None]:
-        pow_token = get_pow_token(self.UA)
+        pow_token = await asyncio.to_thread(get_pow_token, self.UA)
         id = str(uuid4())
         flow = "sora_2_create_task"
         payload = {"flow": flow, "id": id, "p": pow_token}
@@ -132,7 +132,7 @@ class Utils:
                 return json.dumps(sentinel_token), None
             else:
                 err_str = "获取Sentinel tokens失败"
-                logger.error(f"{err_str}")
+                logger.error(f"{err_str}: {response.text}")
                 return None, err_str
         except Timeout as e:
             logger.error(f"网络请求超时: {e}")

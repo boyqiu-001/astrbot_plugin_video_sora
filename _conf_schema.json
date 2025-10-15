@@ -3,7 +3,13 @@
     "description": "authorization列表",
     "type": "list",
     "default": [],
-    "hint": "支持添加多个Token轮询使用，不要一次性加太多账号，谨防大规模封号。Token获取方式：登录https://chatgpt.com以后，进入https://chatgpt.com/api/auth/session复制accessToken字段的值填写进去即可，头部不要加Bearer "
+    "hint": "支持添加多个Token轮询使用。Token获取方式：登录https://chatgpt.com以后，进入https://chatgpt.com/api/auth/session复制accessToken字段的值填写进去即可，不要加Bearer 前缀"
+  },
+  "task_limit": {
+    "description": "每个账号的并发限制",
+    "type": "int",
+    "default": "3",
+    "hint": "以前2，现在是3，以后可能会变"
   },
   "model": {
     "description": "模型代码",
@@ -14,11 +20,11 @@
   "default_prompt": {
     "description": "默认提示词",
     "type": "string",
-    "default": "让图片画面动起来",
+    "default": "生成一个多片段视频",
     "hint": ""
   },
   "screen_mode": {
-    "description": "默认图片方向",
+    "description": "默认视频方向",
     "type": "string",
     "options": [
       "自动",
@@ -26,7 +32,7 @@
       "横屏"
     ],
     "default": "自动",
-    "hint": "生成图片横屏还是竖屏，如果没有图片且为自动，默认竖屏"
+    "hint": "生成视频横屏还是竖屏，如果没有图片且为自动，默认竖屏"
   },
   "sora_base_url": {
     "description": "sora_base_url",
@@ -48,7 +54,7 @@
       "替换"
     ],
     "default": "拼接",
-    "hint": "拼接类似于 https://加速域名/+https://原始域名。替换类似于 https://videos.openai.com/... -> https://加速域名/...，直接替换掉主域名"
+    "hint": "拼接类似于 https://加速域名/+https://原始域名。替换类似于 https://videos.openai.com/... -> https://加速域名/...，直接替换掉原链域名"
   },
   "speed_down_url": {
     "description": "下载视频的加速反代",

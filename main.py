@@ -1,7 +1,7 @@
 import re
 import random
 import asyncio
-import sqlite3
+import aiosqlite
 import os
 import astrbot.api.message_components as Comp
 from datetime import datetime
@@ -32,6 +32,7 @@ class VideoSora(Star):
         self.speed_down_url_type = self.config.get("speed_down_url_type")
         self.speed_down_url = self.config.get("speed_down_url")
         self.polling_task = set()
+        self.task_limit = self.config.get("task_limit", 3)
 
     async def initialize(self):
         """可选择实现异步的插件初始化方法，当实例化该插件类之后会自动调用该方法。"""
@@ -39,9 +40,9 @@ class VideoSora(Star):
             StarTools.get_data_dir("astrbot_plugin_video_sora"), "video_data.db"
         )
         # 打开持久化连接
-        self.conn = sqlite3.connect(video_db_path)
-        self.cursor = self.conn.cursor()
-        self.cursor.execute("""
+        self.conn = await aiosqlite.connect(video_db_path)
+        self.cursor = await self.conn.cursor()
+        await self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS video_data (
                 task_id TEXT PRIMARY KEY NOT NULL,
                 user_id INTEGER,
@@ -58,11 +59,11 @@ class VideoSora(Star):
                 created_at DATETIME
             )
         """)
-        self.conn.commit()
+        await self.conn.commit()
 
     async def quote_task(
         self, event: AstrMessageEvent, task_id: str, authorization: str, is_check=False
-    ) -> list[Comp.BaseMessageComponent]:
+    ) -> tuple[str | None, str | None]:
         """完成视频生成并发送视频"""
 
         # 检查是否已经有相同任务在处理
@@ -74,24 +75,29 @@ class VideoSora(Star):
             )
         # 优化人机交互
         if is_check:
-            status, _, progress = await self.utils.pending_video(task_id, authorization)
-            await event.send(
-                event.chain_result(
-                    [
-                        Comp.Reply(id=event.message_obj.message_id),
-                        Comp.Plain(
-                            f"任务还在队列中，请稍后再看~\n状态：{status} 进度: {progress * 100:.2f}%"
-                        ),
-                    ]
-                )
+            status, err, progress = await self.utils.pending_video(
+                task_id, authorization
             )
+            if err:
+                return None, err
+            if status != "Done":
+                await event.send(
+                    event.chain_result(
+                        [
+                            Comp.Reply(id=event.message_obj.message_id),
+                            Comp.Plain(
+                                f"任务还在队列中，请稍后再看~\n状态：{status} 进度: {progress * 100:.2f}%"
+                            ),
+                        ]
+                    )
+                )
         self.polling_task.add(task_id)
         try:
             # 等待视频生成
             result, err = await self.utils.poll_pending_video(task_id, authorization)
 
             # 更新任务进度
-            self.cursor.execute(
+            await self.cursor.execute(
                 """
                 UPDATE video_data SET status = ?, error_msg = ?, updated_at = ? WHERE task_id = ?
             """,
@@ -102,7 +108,7 @@ class VideoSora(Star):
                     task_id,
                 ),  # "Done"表示任务队列状态结束，至于任务是否完成，不知道
             )
-            self.conn.commit()
+            await self.conn.commit()
 
             if result != "Done" or err:
                 return None, err
@@ -132,7 +138,7 @@ class VideoSora(Star):
                 logger.error(err)
 
             # 更新任务进度
-            self.cursor.execute(
+            await self.cursor.execute(
                 """
                 UPDATE video_data SET status = ?, video_url = ?, generation_id = ?, error_msg = ?, updated_at = ? WHERE task_id = ?
             """,
@@ -145,7 +151,7 @@ class VideoSora(Star):
                     task_id,
                 ),
             )
-            self.conn.commit()
+            await self.conn.commit()
 
             if not video_url or err:
                 return None, err or "生成视频超时"
@@ -155,7 +161,9 @@ class VideoSora(Star):
                     video_url = self.speed_down_url + video_url
                 elif self.speed_down_url_type == "替换":
                     # 替换域名部分
-                    video_url = re.sub(r"^(https?://[^/]+)", self.speed_down_url.rstrip("/"), video_url)
+                    video_url = re.sub(
+                        r"^(https?://[^/]+)", self.speed_down_url.rstrip("/"), video_url
+                    )
             return video_url, None
         finally:
             self.polling_task.remove(task_id)
@@ -186,7 +194,7 @@ class VideoSora(Star):
 
         # 记录任务数据
         datetime_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.cursor.execute(
+        await self.cursor.execute(
             """
             INSERT INTO video_data (task_id, user_id, nickname, prompt, image_url, status, message_id, auth_xor, updated_at, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -204,7 +212,7 @@ class VideoSora(Star):
                 datetime_now,
             ),
         )
-        self.conn.commit()
+        await self.conn.commit()
         # 返回结果
         return task_id, None
 
@@ -312,8 +320,8 @@ class VideoSora(Star):
 
         try:
             # 记录并发
-            if self.auth_dict[auth_token] >= 2:
-                self.auth_dict[auth_token] = 2
+            if self.auth_dict[auth_token] >= self.task_limit:
+                self.auth_dict[auth_token] = self.task_limit
                 logger.warning(f"Token {auth_token[-4:]} 并发数已达上限，但仍尝试使用")
             else:
                 self.auth_dict[auth_token] += 1
@@ -340,11 +348,11 @@ class VideoSora(Star):
     @filter.command("sora查询")
     async def check_video_task(self, event: AstrMessageEvent, task_id: str):
         """重放过去生成的视频，或者查询视频生成状态以及重试未完成的生成任务"""
-        self.cursor.execute(
+        await self.cursor.execute(
             "SELECT status, video_url, error_msg, auth_xor FROM video_data WHERE task_id = ?",
             (task_id,),
         )
-        row = self.cursor.fetchone()
+        row = await self.cursor.fetchone()
         if not row:
             yield event.chain_result(
                 [
@@ -387,7 +395,9 @@ class VideoSora(Star):
                 return
             # 交给quote_task处理
             authorization = "Bearer " + auth_token
-            video_url, msg = await self.quote_task(event, task_id, authorization, is_check=True)
+            video_url, msg = await self.quote_task(
+                event, task_id, authorization, is_check=True
+            )
             if not video_url:
                 yield event.chain_result(
                     [
@@ -401,6 +411,6 @@ class VideoSora(Star):
     async def terminate(self):
         """可选择实现异步的插件销毁方法，当插件被卸载/停用时会调用。"""
         await self.utils.close()
-        self.conn.commit()
-        self.cursor.close()
-        self.conn.close()
+        await self.conn.commit()
+        await self.cursor.close()
+        await self.conn.close()
