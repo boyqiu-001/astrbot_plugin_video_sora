@@ -33,7 +33,8 @@ class VideoSora(Star):
         self.speed_down_url = self.config.get("speed_down_url")
         self.polling_task = set()
         self.task_limit = self.config.get("task_limit", 3)
-
+        self.white_list_enabled = self.config.get("white_list_enabled", False)
+        self.white_list = self.config.get("white_list", [])
     async def initialize(self):
         """可选择实现异步的插件初始化方法，当实例化该插件类之后会自动调用该方法。"""
         video_db_path = os.path.join(
@@ -228,6 +229,16 @@ class VideoSora(Star):
                 ]
             )
             return
+        if self.white_list_enabled:
+            session_id = event.unified_msg_origin
+            if session_id not in self.white_list:
+                yield event.chain_result(
+                    [
+                        Comp.Reply(id=event.message_obj.message_id),
+                        Comp.Plain("您没有权限使用该插件,请联系管理员添加sid白名单"),
+                    ]
+                )
+                return
         # 解析参数
         msg = re.match(
             r"^(?:生成视频|视频生成|sora) (横屏|竖屏)?([\s\S]*)$",
@@ -348,6 +359,16 @@ class VideoSora(Star):
     @filter.command("sora查询")
     async def check_video_task(self, event: AstrMessageEvent, task_id: str):
         """重放过去生成的视频，或者查询视频生成状态以及重试未完成的生成任务"""
+        if self.white_list_enabled:
+            session_id = event.unified_msg_origin
+            if session_id not in self.white_list:
+                yield event.chain_result(
+                    [
+                        Comp.Reply(id=event.message_obj.message_id),
+                        Comp.Plain("您没有权限使用该插件,请联系管理员添加sid白名单"),
+                    ]
+                )
+                return
         await self.cursor.execute(
             "SELECT status, video_url, error_msg, auth_xor FROM video_data WHERE task_id = ?",
             (task_id,),

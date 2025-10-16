@@ -62,6 +62,18 @@
     "default": "",
     "hint": "如上所述"
   },
+  "white_list_enabled": {
+    "description": "启用sid白名单",
+    "hint": "启用后只有白名单内的sid才能使用该插件",
+    "type": "bool",
+    "default": false
+  },
+    "white_list": {
+    "description": "sid白名单",
+    "type": "list",
+    "default": [],
+    "hint": "可以通过sid命令获取sid,填写后只有白名单内的sid才能使用该插件"
+  },
   "proxy": {
     "description": "proxy",
     "type": "string",
